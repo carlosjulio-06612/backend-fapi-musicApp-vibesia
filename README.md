@@ -17,10 +17,12 @@ src/
 │   │           ├── __init__.py
 │   │           ├── artist.py     # Artist-related endpoints
 │   │           ├── auth.py       # Authentication and token generation
+│   │           ├── song.py       # Endpoints for song management and queries
 │   │           ├── password.py   # Password management
 │   │           ├── playlist.py   # Playlist endpoints
 │   │           └── users.py      # User management
 │   ├── core/
+│   │   ├── __init__.py
 │   │   ├── config.py             # General project configuration
 │   │   ├── database.py           # Database connection and configuration
 │   │   ├── security.py           # Security and authentication functions
@@ -30,6 +32,7 @@ src/
 │   │   ├── base.py               # Generic CRUD operations
 │   │   ├── crud_artist.py        # Artist-specific CRUD
 │   │   ├── crud_playlist.py      # Playlist-specific CRUD
+│   │   ├── crud_song.py          # Song-specific CRUD
 │   │   └── crud_user.py          # User-specific CRUD
 │   ├── models/
 │   │   ├── __init__.py
@@ -50,9 +53,12 @@ src/
 │   │   ├── audit_log.py
 │   │   ├── password.py
 │   │   ├── playlist.py
+│   │   ├── song.py
 │   │   ├── token.py
 │   │   └── user.py              # Pydantic schemas for user validation
-│   └── main.py                  # Main entry point for FastAPI application
+│   ├── main.py                  # Main entry point for FastAPI application
+│   │
+│   └── __init__.py
 │
 ├── test/
 │   ├── confest.py               # Configuration for pytest testing
@@ -68,6 +74,7 @@ src/
 - **Alembic** (optional): Database migrations
 - **Pytest**: Testing framework for automated tests
 - **JWT**: Token-based authentication
+- **Render**: Render is a cloud hosting platform that makes it easy to deploy web applications, APIs, databases, static services, and more.
 
 ## 📋 Prerequisites
 
@@ -75,6 +82,9 @@ src/
 - PostgreSQL/MySQL (database)
 - pip or pipenv for dependency management
 
+---
+
+The entire project is compressed into a .zip file, available for download and local execution if you want to test the entire system.Or an even more technical and formal alternative: The entire project has been packaged into a .zip file, which can be used for testing or running the application locally.
 ## 🛠️ Installation and Setup
 
 ### 1. Clone the repository
