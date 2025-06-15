@@ -3,8 +3,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
-SQLALCHEMY_DATABASE_URL = "postgresql+psycopg2://music_admin:music-password@localhost:5432/musicdb"
-
+SQLALCHEMY_DATABASE_URL = "postgresql+psycopg2://admin:miclave123@rds-fastapi-dev.cgdemwa0uf7v.us-east-1.rds.amazonaws.com:5432/vibesia_db"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
