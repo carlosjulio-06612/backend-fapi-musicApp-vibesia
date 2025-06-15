@@ -1,6 +1,6 @@
 from typing import List, Optional, Any, Dict
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, exc
 
 from app.crud.base import CRUDBase
 from app.models.Playlist import Playlist
@@ -35,22 +35,23 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
         self, db: Session, *, obj_in: PlaylistCreate, user_id: int
     ) -> Optional[Dict[str, Any]]:
         try:
+            # CORRECT: This is a FUNCTION, so SELECT is the right way to call it.
             result = db.execute(
-                text("CALL sp_create_playlist(:user_id, :name, :description, :status)"),
+                text("SELECT * FROM vibesia_schema.sp_create_playlist(:user_id, :name, :description, :status)"),
                 {
                     "user_id": user_id,
                     "name": obj_in.name,
                     "description": obj_in.description,
                     "status": obj_in.status,
                 },
-            )
-            playlist_result = result.fetchone()
-            if not playlist_result:
+            ).fetchone()
+
+            if not result or not result[1]:
                 db.rollback()
                 return None
             
-            playlist_id = playlist_result[0]
-
+            playlist_id = result[0]
+            
             if obj_in.song_ids:
                 for position, song_id in enumerate(obj_in.song_ids):
                     self.add_song_to_playlist(
@@ -58,7 +59,7 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
                         playlist_id=playlist_id,
                         song_id=song_id,
                         user_id=user_id,
-                        position=position
+                        position=position + 1
                     )
             
             db.commit()
@@ -72,52 +73,37 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
         self, db: Session, *, playlist_id: int, user_id: int, obj_in: PlaylistUpdate
     ) -> Optional[Dict[str, Any]]:
         try:
-            existing_playlist = self.get_user_playlist(
-                db=db, playlist_id=playlist_id, user_id=user_id
-            )
-            if not existing_playlist:
+            if not self.get_user_playlist(db=db, playlist_id=playlist_id, user_id=user_id):
                 return None
 
-            update_data = obj_in.model_dump(exclude_unset=True)
-
-            if any(key in update_data for key in ['name', 'description', 'status']):
-                db.execute(
-                    text("CALL sp_update_playlist_info(:p_playlist_id, :p_user_id, :p_name, :p_description, :p_status)"),
-                    {
-                        "p_playlist_id": playlist_id,
-                        "p_user_id": user_id,
-                        "p_name": update_data.get("name", existing_playlist.name),
-                        "p_description": update_data.get("description", existing_playlist.description),
-                        "p_status": update_data.get("status", existing_playlist.status),
-                    },
-                )
-
-            if obj_in.add_songs:
-                for song_data in obj_in.add_songs:
-                    self.add_song_to_playlist(
-                        db=db, playlist_id=playlist_id, song_id=song_data.song_id, user_id=user_id
-                    )
-
-            if obj_in.remove_songs:
-                for song_id in obj_in.remove_songs:
-                    self.remove_song_from_playlist(
-                        db=db, playlist_id=playlist_id, song_id=song_id, user_id=user_id
-                    )
-
-            if obj_in.reorder_songs:
-                for reorder_data in obj_in.reorder_songs:
-                    self.reorder_song_in_playlist(
-                        db=db,
-                        playlist_id=playlist_id,
-                        song_id=reorder_data.song_id,
-                        new_position=reorder_data.new_position,
-                        user_id=user_id,
-                    )
+            update_data = obj_in.dict(exclude_unset=True)
             
+            # CORRECTED: Use CALL with NULLs for OUT parameters
+            db.execute(
+                text("""
+                    CALL vibesia_schema.sp_update_playlist(
+                        p_success => NULL,
+                        p_message => NULL,
+                        p_playlist_id => :p_playlist_id,
+                        p_user_id => :p_user_id,
+                        p_new_name => :p_new_name,
+                        p_new_description => :p_new_description,
+                        p_new_status => :p_new_status
+                    )
+                """),
+                {
+                    "p_playlist_id": playlist_id,
+                    "p_user_id": user_id,
+                    "p_new_name": update_data.get("name"),
+                    "p_new_description": update_data.get("description"),
+                    "p_new_status": update_data.get("status"),
+                },
+            )
+
             db.commit()
             return self.get_playlist_with_songs(db=db, playlist_id=playlist_id, user_id=user_id)
 
-        except Exception as e:
+        except exc.SQLAlchemyError as e:
             db.rollback()
             raise e
 
@@ -131,57 +117,82 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
             if not playlist_to_delete:
                 return None
             
+            # CORRECTED: Use CALL with NULLs for OUT parameters
             db.execute(
-                text("CALL sp_delete_playlist(:p_playlist_id, :p_user_id)"),
+                text("""
+                    CALL vibesia_schema.sp_delete_playlist(
+                        p_success => NULL,
+                        p_message => NULL,
+                        p_songs_removed => NULL,
+                        p_playlist_id => :p_playlist_id,
+                        p_user_id => :p_user_id
+                    )
+                """),
                 {"p_playlist_id": playlist_id, "p_user_id": user_id},
             )
+
             db.commit()
             return playlist_to_delete
             
-        except Exception as e:
+        except exc.SQLAlchemyError as e:
             db.rollback()
             raise e
 
     def add_song_to_playlist(
         self, db: Session, *, playlist_id: int, song_id: int, user_id: int, position: Optional[int] = None
     ) -> None:
-        if not self.get_user_playlist(db=db, playlist_id=playlist_id, user_id=user_id):
-            raise ValueError("Playlist not found or does not belong to the user")
-        
+        # CORRECTED: Use CALL with NULLs for OUT parameters
         db.execute(
-            text("CALL sp_add_song_to_playlist(:p_playlist_id, :p_song_id, :p_position)"),
+            text("""
+                CALL vibesia_schema.sp_add_song_to_playlist(
+                    p_success => NULL,
+                    p_message => NULL,
+                    p_playlist_id => :p_playlist_id,
+                    p_song_id => :p_song_id,
+                    p_user_id => :p_user_id,
+                    p_position => :p_position
+                )
+            """),
             {
                 "p_playlist_id": playlist_id,
                 "p_song_id": song_id,
-                "p_position": position
+                "p_user_id": user_id,
+                "p_position": position,
             },
         )
 
     def remove_song_from_playlist(
         self, db: Session, *, playlist_id: int, song_id: int, user_id: int
     ) -> None:
-        if not self.get_user_playlist(db=db, playlist_id=playlist_id, user_id=user_id):
-            raise ValueError("Playlist not found or does not belong to the user")
-        
-        db.execute(
-            text("CALL sp_remove_song_from_playlist(:p_playlist_id, :p_song_id)"),
-            {"p_playlist_id": playlist_id, "p_song_id": song_id},
-        )
+        try:
+            # CORRECTED: Use CALL with NULLs for OUT parameters
+            db.execute(
+                text("""
+                    CALL vibesia_schema.sp_remove_song_from_playlist(
+                        p_success => NULL,
+                        p_message => NULL,
+                        p_playlist_id => :p_playlist_id,
+                        p_song_id => :p_song_id,
+                        p_user_id => :p_user_id
+                    )
+                """),
+                {
+                    "p_playlist_id": playlist_id,
+                    "p_song_id": song_id,
+                    "p_user_id": user_id,
+                },
+            )
+            
+            db.commit()
+
+        except exc.SQLAlchemyError as e:
+            db.rollback()
+            raise e
 
     def reorder_song_in_playlist(
         self, db: Session, *, playlist_id: int, song_id: int, new_position: int, user_id: int
     ) -> None:
-        if not self.get_user_playlist(db=db, playlist_id=playlist_id, user_id=user_id):
-            raise ValueError("Playlist not found or does not belong to the user")
-        
-        db.execute(
-            text("CALL sp_reorder_playlist_song(:p_playlist_id, :p_song_id, :p_new_position)"),
-            {
-                "p_playlist_id": playlist_id,
-                "p_song_id": song_id,
-                "p_new_position": new_position,
-            },
-        )
+        raise NotImplementedError("This functionality is not supported. The database procedure 'sp_reorder_playlist_song' does not exist.")
 
     def get_playlist_songs(
         self, db: Session, *, playlist_id: int, user_id: int
@@ -191,9 +202,18 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
         
         result = db.execute(
             text("""
-                SELECT s.song_id, s.title, s.artist_name, s.duration_seconds, ps.position
-                FROM playlist_songs ps
-                JOIN songs s ON ps.song_id = s.song_id
+                SELECT 
+                    s.song_id, 
+                    s.title, 
+                    ar.name AS artist_name, 
+                    s.lyrics,
+                    s.duration, 
+                    ps.position,
+                    ps.date_added
+                FROM vibesia_schema.playlist_songs ps
+                JOIN vibesia_schema.songs s ON ps.song_id = s.song_id
+                JOIN vibesia_schema.albums al ON s.album_id = al.album_id
+                JOIN vibesia_schema.artists ar ON al.artist_id = ar.artist_id
                 WHERE ps.playlist_id = :playlist_id
                 ORDER BY ps.position ASC
             """),
@@ -211,9 +231,9 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
             text("""
                 SELECT 
                     COUNT(ps.song_id) as song_count,
-                    COALESCE(SUM(s.duration_seconds), 0) as total_duration
-                FROM playlist_songs ps
-                LEFT JOIN songs s ON ps.song_id = s.song_id
+                    COALESCE(SUM(s.duration), 0) as total_duration
+                FROM vibesia_schema.playlist_songs ps
+                LEFT JOIN vibesia_schema.songs s ON ps.song_id = s.song_id
                 WHERE ps.playlist_id = :playlist_id
             """),
             {"playlist_id": playlist_id}

@@ -6,7 +6,7 @@ from datetime import datetime
 class ArtistBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     country: Optional[str] = Field(None, max_length=50)
-    formation_year: Optional[int] = Field(None, gt=1800, lt=2100)
+    formation_year: Optional[int] = Field(None, gt=1700, lt=datetime.now().year + 1)
     biography: Optional[str] = None
     artist_type: str = Field(..., max_length=30)
 
@@ -18,7 +18,7 @@ class ArtistCreate(ArtistBase):
 class ArtistUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     country: Optional[str] = Field(None, max_length=50)
-    formation_year: Optional[int] = Field(None, gt=1800, lt=2100)
+    formation_year: Optional[int] = Field(None, gt=1700, lt=datetime.now().year + 1)
     biography: Optional[str] = None
     artist_type: Optional[str] = Field(None, max_length=30)
     popularity: Optional[int] = Field(None, ge=0)

@@ -1,8 +1,7 @@
-# --- START OF FILE playlist.py (CORRECTED) ---
-
 from typing import List, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app import crud
 from app import models
 from app.schemas import playlist as schemas
@@ -74,6 +73,54 @@ def get_user_playlist(
             detail="Playlist not found or does not belong to user."
         )
     return playlist
+
+@router.post("/{playlist_id}/songs", status_code=status.HTTP_200_OK, tags=["Playlists"])
+def add_song_to_playlist_endpoint(
+    playlist_id: int,
+    song_in: schemas.PlaylistSongCreate,
+    current_user: models.User = Depends(deps.get_current_active_user),
+):
+    db = Session.object_session(current_user)
+    try:
+        crud.playlist.add_song_to_playlist(
+            db=db,
+            playlist_id=playlist_id,
+            song_id=song_in.song_id,
+            user_id=current_user.user_id,
+        )
+        db.commit()
+        return {"detail": "Song added successfully"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+@router.delete("/{playlist_id}/songs/{song_id}", status_code=status.HTTP_200_OK, tags=["Playlists"])
+def remove_song_from_playlist_endpoint(
+    playlist_id: int,
+    song_id: int,
+    current_user: models.User = Depends(deps.get_current_active_user),
+):
+    db = Session.object_session(current_user)
+    try:
+        crud.playlist.remove_song_from_playlist(
+            db=db,
+            playlist_id=playlist_id,
+            song_id=song_id,
+            user_id=current_user.user_id,
+        )
+        db.commit()
+        return {"detail": "Song removed successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
 
 @router.put("/{playlist_id}", response_model=schemas.Playlist, tags=["Playlists"])
 def update_user_playlist(
