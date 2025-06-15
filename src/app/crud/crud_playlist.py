@@ -1,16 +1,16 @@
 from typing import List, Optional, Any, Dict
 from sqlalchemy.orm import Session
-from sqlalchemy import text, exc
+from sqlalchemy import text, exc, Integer, Boolean, String
+from sqlalchemy.sql import outparam
+from fastapi import HTTPException, status
 
 from app.crud.base import CRUDBase
 from app.models.Playlist import Playlist
-from app.schemas.playlist import PlaylistCreate, PlaylistUpdate
+from app.schemas.playlist import PlaylistCreate, PlaylistUpdate, PlaylistSongCreate
 
 class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
 
-    def get_by_user(
-        self, db: Session, *, user_id: int, skip: int = 0, limit: int = 100
-    ) -> List[Playlist]:
+    def get_by_user(self, db: Session, *, user_id: int, skip: int = 0, limit: int = 100) -> List[Playlist]:
         return (
             db.query(self.model)
             .filter(self.model.user_id == user_id)
@@ -19,9 +19,7 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
             .all()
         )
 
-    def get_user_playlist(
-        self, db: Session, *, playlist_id: int, user_id: int
-    ) -> Optional[Playlist]:
+    def get_user_playlist(self, db: Session, *, playlist_id: int, user_id: int) -> Optional[Playlist]:
         return (
             db.query(self.model)
             .filter(
@@ -30,41 +28,50 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
             )
             .first()
         )
-
-    def create_for_user(
-        self, db: Session, *, obj_in: PlaylistCreate, user_id: int
-    ) -> Optional[Dict[str, Any]]:
+    
+    def create_for_user(self, db: Session, *, obj_in: PlaylistCreate, user_id: int) -> Optional[Dict[str, Any]]:
         try:
-            # CORRECT: This is a FUNCTION, so SELECT is the right way to call it.
+            # LA SOLUCIÓN: Llamar al procedimiento con SELECT.
+            # Los parámetros OUT se devuelven como columnas en el resultado.
+            # Solo pasamos los parámetros IN en la llamada.
+            stmt = text("""
+                SELECT * FROM vibesia_schema.sp_create_playlist(
+                    p_user_id => :p_user_id,
+                    p_name => :p_name,
+                    p_description => :p_description,
+                    p_status => :p_status
+                )
+            """)
+
+            # Ejecutar y obtener la única fila de resultado.
             result = db.execute(
-                text("SELECT * FROM vibesia_schema.sp_create_playlist(:user_id, :name, :description, :status)"),
+                stmt,
                 {
-                    "user_id": user_id,
-                    "name": obj_in.name,
-                    "description": obj_in.description,
-                    "status": obj_in.status,
-                },
-            ).fetchone()
-
-            if not result or not result[1]:
+                    "p_user_id": user_id,
+                    "p_name": obj_in.name,
+                    "p_description": obj_in.description,
+                    "p_status": obj_in.status,
+                }
+            ).first()
+            
+            # El resultado es una fila con las columnas: p_playlist_id, p_success, p_message
+            if not result or not result.p_success:
                 db.rollback()
-                return None
-            
-            playlist_id = result[0]
-            
-            if obj_in.song_ids:
-                for position, song_id in enumerate(obj_in.song_ids):
-                    self.add_song_to_playlist(
-                        db=db,
-                        playlist_id=playlist_id,
-                        song_id=song_id,
-                        user_id=user_id,
-                        position=position + 1
-                    )
-            
-            db.commit()
-            return self.get_playlist_with_songs(db=db, playlist_id=playlist_id, user_id=user_id)
+                error_message = result.p_message if result else "Failed to create playlist."
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=error_message
+                )
 
+            # Obtener el ID de la nueva playlist desde el resultado de la consulta
+            new_playlist_id = result.p_playlist_id
+            db.commit()
+            
+            return self.get_playlist_with_songs(db=db, playlist_id=new_playlist_id, user_id=user_id)
+
+        except exc.SQLAlchemyError as e:
+            db.rollback()
+            self._handle_db_error(e)
         except Exception as e:
             db.rollback()
             raise e
@@ -105,7 +112,7 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
 
         except exc.SQLAlchemyError as e:
             db.rollback()
-            raise e
+            raise e    
 
     def delete_user_playlist(
         self, db: Session, *, playlist_id: int, user_id: int
@@ -189,38 +196,6 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
             db.rollback()
             raise e
 
-    def reorder_song_in_playlist(
-        self, db: Session, *, playlist_id: int, song_id: int, new_position: int, user_id: int
-    ) -> None:
-        raise NotImplementedError("This functionality is not supported. The database procedure 'sp_reorder_playlist_song' does not exist.")
-
-    def get_playlist_songs(
-        self, db: Session, *, playlist_id: int, user_id: int
-    ) -> List[Dict[str, Any]]:
-        if not self.get_user_playlist(db=db, playlist_id=playlist_id, user_id=user_id):
-            return []
-        
-        result = db.execute(
-            text("""
-                SELECT 
-                    s.song_id, 
-                    s.title, 
-                    ar.name AS artist_name, 
-                    s.lyrics,
-                    s.duration, 
-                    ps.position,
-                    ps.date_added
-                FROM vibesia_schema.playlist_songs ps
-                JOIN vibesia_schema.songs s ON ps.song_id = s.song_id
-                JOIN vibesia_schema.albums al ON s.album_id = al.album_id
-                JOIN vibesia_schema.artists ar ON al.artist_id = ar.artist_id
-                WHERE ps.playlist_id = :playlist_id
-                ORDER BY ps.position ASC
-            """),
-            {"playlist_id": playlist_id}
-        )
-        return [dict(row._mapping) for row in result]
-
     def get_playlist_stats(
         self, db: Session, *, playlist_id: int, user_id: int
     ) -> Optional[Dict[str, Any]]:
@@ -269,5 +244,33 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
     def count_by_user(self, db: Session, *, user_id: int) -> int:
         return db.query(self.model).filter(self.model.user_id == user_id).count()
 
+    
+    def _handle_db_error(self, e: exc.SQLAlchemyError):
+        # Start with a generic message as the absolute last resort
+        detail = "An internal database error occurred."
+
+        # The best way is to get the message from the original DBAPI exception
+        if e.orig:
+            if hasattr(e.orig, 'pgerror') and e.orig.pgerror:
+                error_message = str(e.orig.pgerror)
+                # Try to clean up the message from PostgreSQL
+                if 'ERROR:' in error_message:
+                    detail = error_message.split('ERROR:')[1].strip()
+                else:
+                    detail = error_message
+            elif hasattr(e.orig, 'diag') and e.orig.diag.message_primary:
+                detail = e.orig.diag.message_primary
+            else:
+                # A more robust fallback: convert the original exception to a string.
+                # This usually contains the full error message from the database.
+                detail = str(e.orig)
+        else:
+             # If there's no original exception, use the SQLAlchemy exception string
+             detail = str(e)
+        
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail
+        )
 
 playlist = CRUDPlaylist(Playlist)

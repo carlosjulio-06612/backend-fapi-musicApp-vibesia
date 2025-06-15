@@ -1,5 +1,3 @@
-# --- START OF FILE password.py (CORRECTED) ---
-
 import logging
 from datetime import datetime, timezone
 from urllib.parse import unquote

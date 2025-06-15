@@ -19,42 +19,38 @@ class PlaylistSongCreate(BaseModel):
 
 class SongReorder(BaseModel):
     song_id: int
-    new_position: int = Field(..., ge=0, description="The new position of the song (0-based)")
+    new_position: int = Field(..., ge=1, description="The new position of the song (1-based)")
 
 class SongInPlaylist(Song):
-    position: int = Field(..., ge=0, description="Position of the song within the playlist")
+    position: int = Field(..., ge=1, description="Position of the song within the playlist")
     date_added: datetime
 
 class PlaylistBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=300)
-    status: str = Field("private", description="Visibility of the playlist: private, public, or shared")
+    status: str = Field("private", description="Visibility of the playlist: private or public")
     
     @field_validator('status')
     @classmethod
     def validate_status(cls, v: str) -> str:
-        allowed_statuses = {'private', 'public', 'shared'}
+        allowed_statuses = {'private', 'public'}
         if v not in allowed_statuses:
             raise ValueError(f'Status must be one of: {", ".join(allowed_statuses)}')
         return v
 
 class PlaylistCreate(PlaylistBase):
-    song_ids: Optional[List[int]] = Field([], description="List of song IDs to add to the playlist in order.")
+    pass
 
 class PlaylistUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=300)
     status: Optional[str] = Field(None, description="New visibility for the playlist")
     
-    add_songs: Optional[List[PlaylistSongCreate]] = Field([], description="Songs to add to the playlist")
-    remove_songs: Optional[List[int]] = Field([], description="List of song IDs to remove from the playlist")
-    reorder_songs: Optional[List[SongReorder]] = Field([], description="List of songs to reorder")
-    
     @field_validator('status')
     @classmethod
     def validate_status(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
-            allowed_statuses = {'private', 'public', 'shared'}
+            allowed_statuses = {'private', 'public'}
             if v not in allowed_statuses:
                 raise ValueError(f'Status must be one of: {", ".join(allowed_statuses)}')
         return v

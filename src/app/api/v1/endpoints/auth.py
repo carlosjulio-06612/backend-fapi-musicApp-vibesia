@@ -1,5 +1,3 @@
-# --- START OF FILE auth.py (CORRECTED) ---
-
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status

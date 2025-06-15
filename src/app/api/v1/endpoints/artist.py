@@ -1,5 +1,3 @@
-# --- START OF FILE artist.py (CORRECTED) ---
-
 from typing import List, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
