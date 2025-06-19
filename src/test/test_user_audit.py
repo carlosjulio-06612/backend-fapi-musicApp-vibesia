@@ -9,22 +9,48 @@ import uuid
 from contextlib import contextmanager
 
 # --- 1. Centralized Configuration ---
-# Read environment variables. It's cleaner to have them at the top.
-API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000/api/v1")
-DATABASE_URL = os.getenv("DATABASE_URL")
-DB_SCHEMA = "vibesia_schema"  # Centralize the schema name in case it changes
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/dbname")
+DB_SCHEMA = "vibesia_schema"
 
-# Validate that the database URL is present at startup.
+# --- 2. Check Configuration ---
 if not DATABASE_URL:
-    raise ValueError("The DATABASE_URL environment variable is not set. Please configure it.")
+    raise ValueError("❌ DATABASE_URL is not set. Check your .env file.")
 
-# --- 2. Database Connection ---
+# --- 3. Database Connection ---
 try:
-    engine = sqlalchemy.create_engine(DATABASE_URL)
+    engine = sqlalchemy.create_engine(
+        DATABASE_URL,
+        connect_args={"options": f"-csearch_path={DB_SCHEMA}"}  # Use schema
+    )
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 except Exception as e:
-    print(f"\033[91mError: Could not connect to the database: {e}\033[0m")
+    print(f"\033[91m❌ Error: Could not connect to the database: {e}\033[0m")
     exit(1)
+
+# --- 4. Test Setup ---
+@contextmanager
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# --- 5. Example test ---
+def test_connection_and_user_creation():
+    print("✅ Connected to DB and API")
+    print(f"🌐 API: {API_BASE_URL}")
+    print(f"🗄️ DB:  {DATABASE_URL}")
+
+    # Test ping API
+    response = requests.get(f"{API_BASE_URL}/health")
+    assert response.status_code == 200, "API is not healthy"
+    print("🚀 API is up and running.")
+
+
+if __name__ == "__main__":
+    test_connection_and_user_creation()
 
 @contextmanager
 def get_db():
@@ -65,7 +91,7 @@ def test_1_create_user(test_state: dict):
     test_state['password'] = user_password
     
     response = requests.post(
-        f"{API_BASE_URL}/users/",
+        f"{API_BASE_URL}/api/v1/users/",
         json={"email": user_email, "username": user_email, "password": user_password}
     )
     
@@ -91,7 +117,7 @@ def test_2_login_user(test_state: dict):
     """Tests the login of the created user."""
     test_name = "2. User Login"
     response = requests.post(
-        f"{API_BASE_URL}/auth/login",
+        f"{API_BASE_URL}/api/v1/auth/login",
         data={"username": test_state['email'], "password": test_state['password']}
     )
 
@@ -109,7 +135,7 @@ def test_3_update_user(test_state: dict):
     headers = {"Authorization": f"Bearer {test_state['token']}"}
     
     response = requests.put(
-        f"{API_BASE_URL}/users/me",
+        f"{API_BASE_URL}/api/v1/users/me",
         headers=headers,
         json={"preferences": "Updated by lifecycle test"}
     )
@@ -134,9 +160,9 @@ def test_4_delete_user(test_state: dict):
     """Tests user self-deletion and verifies the audit log (DELETE)."""
     test_name = "4. User Self-Deletion (DELETE Audit)"
     headers = {"Authorization": f"Bearer {test_state['token']}"}
-    
-    response = requests.delete(f"{API_BASE_URL}/users/me", headers=headers)
-    
+
+    response = requests.delete(f"{API_BASE_URL}/api/v1/users/me", headers=headers)
+
     if response.status_code != 200:
         print_test_result(test_name, False, f"API call failed with status {response.status_code}: {response.text}")
         return False
