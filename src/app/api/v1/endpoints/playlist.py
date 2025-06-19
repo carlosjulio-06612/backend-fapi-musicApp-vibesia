@@ -6,8 +6,12 @@ from app import crud
 from app import models
 from app.schemas import playlist as schemas
 from app.api import deps
+from pydantic import BaseModel
 
 router = APIRouter()
+
+class MessageResponse(BaseModel):
+    message: str
 
 @router.get("/", response_model=List[schemas.PlaylistSummary], tags=["Playlists"])
 def get_user_playlists(
@@ -19,6 +23,7 @@ def get_user_playlists(
     return crud.playlist.get_summaries_by_user(
         db=db, user_id=current_user.user_id, skip=skip, limit=limit
     )
+
 
 @router.post("/", response_model=schemas.Playlist, status_code=status.HTTP_201_CREATED, tags=["Playlists"])
 def create_user_playlist(
@@ -98,11 +103,18 @@ def add_song_to_playlist_endpoint(
         song_id=song_in.song_id,
         user_id=current_user.user_id,
     )
-    return crud.playlist.get_playlist_with_songs(
+    playlist = crud.playlist.get_playlist_with_songs(
         db=db, playlist_id=playlist_id, user_id=current_user.user_id
     )
+    if not playlist:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Playlist not found or does not belong to user."
+        )
+    return playlist
 
-@router.delete("/{playlist_id}/songs/{song_id}", response_model=schemas.Playlist, tags=["Playlists"])
+
+@router.delete("/{playlist_id}/songs/{song_id}", response_model=MessageResponse, tags=["Playlists"])
 def remove_song_from_playlist_endpoint(
     playlist_id: int,
     song_id: int,
@@ -115,9 +127,7 @@ def remove_song_from_playlist_endpoint(
         song_id=song_id,
         user_id=current_user.user_id,
     )
-    return crud.playlist.get_playlist_with_songs(
-        db=db, playlist_id=playlist_id, user_id=current_user.user_id
-    )
+    return {"message": "Song removed permanently from playlist"}
 
 @router.get("/info/count", response_model=int, tags=["Playlists"])
 def get_user_playlist_count(
@@ -128,3 +138,5 @@ def get_user_playlist_count(
         db=db, 
         user_id=current_user.user_id
     )
+
+

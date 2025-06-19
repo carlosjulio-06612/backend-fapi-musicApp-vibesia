@@ -1,6 +1,14 @@
+import enum
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
+
+class ArtistTypeEnum(str, enum.Enum):
+    BAND = "band"
+    SOLOIST = "soloist"
+    COLLECTIVE = "collective"
+    DUO = "duo"
+    ORCHESTRA = "orchestra"
 
 # Shared properties for an artist
 class ArtistBase(BaseModel):
@@ -8,7 +16,7 @@ class ArtistBase(BaseModel):
     country: Optional[str] = Field(None, max_length=50)
     formation_year: Optional[int] = Field(None, gt=1700, lt=datetime.now().year + 1)
     biography: Optional[str] = None
-    artist_type: str = Field(..., max_length=30)
+    artist_type: ArtistTypeEnum
 
 # Properties to receive on item creation
 class ArtistCreate(ArtistBase):
@@ -20,8 +28,8 @@ class ArtistUpdate(BaseModel):
     country: Optional[str] = Field(None, max_length=50)
     formation_year: Optional[int] = Field(None, gt=1700, lt=datetime.now().year + 1)
     biography: Optional[str] = None
-    artist_type: Optional[str] = Field(None, max_length=30)
-    popularity: Optional[int] = Field(None, ge=0)
+    artist_type: Optional[ArtistTypeEnum] = None
+    popularity: Optional[int] = Field(None, ge=1, le=100)
 
 # Properties shared by models stored in DB
 class ArtistInDBBase(ArtistBase):

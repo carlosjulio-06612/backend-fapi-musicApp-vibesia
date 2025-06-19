@@ -18,6 +18,92 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
             .limit(limit)
             .all()
         )
+    
+    def get_summaries_by_user(self, db: Session, *, user_id: int, skip: int = 0, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Obtiene resúmenes de playlists del usuario (sin las canciones completas)
+        """
+        result = db.execute(
+            text("""
+                SELECT 
+                    p.playlist_id,
+                    p.user_id,
+                    p.name,
+                    p.description,
+                    p.status,
+                    p.created_at,
+                    p.updated_at,
+                    COALESCE(COUNT(ps.song_id), 0) as song_count,
+                    COALESCE(SUM(s.duration), 0) as total_duration
+                FROM vibesia_schema.playlists p
+                LEFT JOIN vibesia_schema.playlist_songs ps ON p.playlist_id = ps.playlist_id
+                LEFT JOIN vibesia_schema.songs s ON ps.song_id = s.song_id
+                WHERE p.user_id = :user_id
+                GROUP BY p.playlist_id, p.user_id, p.name, p.description, p.status, p.created_at, p.updated_at
+                ORDER BY p.created_at DESC
+                OFFSET :skip LIMIT :limit
+            """),
+            {"user_id": user_id, "skip": skip, "limit": limit}
+        ).fetchall()
+    
+        summaries = []
+        for row in result:
+            summary = {
+                "playlist_id": row.playlist_id,
+                "user_id": row.user_id,
+                "name": row.name,
+                "description": row.description,
+                "status": row.status,
+                "created_at": row.created_at,
+                "updated_at": row.updated_at,
+                "song_count": row.song_count,
+                "total_duration": row.total_duration
+            }
+            summaries.append(summary)
+    
+        return summaries
+    
+
+    def get_playlist_songs(self, db: Session, *, playlist_id: int, user_id: int) -> List[Dict[str, Any]]:
+        """
+        Retrieves the songs from a specific user's playlist.
+        """
+        # Verify that the playlist belongs to the user
+        if not self.get_user_playlist(db=db, playlist_id=playlist_id, user_id=user_id):
+            return []
+
+        try:
+            result = db.execute(
+                text("""
+                    SELECT 
+                        s.song_id,
+                        s.title,
+                        s.duration,
+                        s.track_number,
+                        s.composer,
+                        s.audio_path,
+                        s.explicit_content,
+                        a.title AS album_title,
+                        ar.name AS artist_name,
+                        ps.position,
+                        ps.date_added
+                    FROM vibesia_schema.playlist_songs ps
+                    JOIN vibesia_schema.songs s ON ps.song_id = s.song_id
+                    JOIN vibesia_schema.albums a ON s.album_id = a.album_id
+                    JOIN vibesia_schema.artists ar ON a.artist_id = ar.artist_id
+                    WHERE ps.playlist_id = :playlist_id
+                    ORDER BY ps.position ASC, ps.date_added ASC
+                """),
+                {"playlist_id": playlist_id}
+            ).fetchall()
+
+            return [dict(row._mapping) for row in result]
+
+        except Exception as e:
+            # Optionally log this error if logging is enabled
+            print(f"Error retrieving playlist songs: {e}")
+            return []
+
 
     def get_user_playlist(self, db: Session, *, playlist_id: int, user_id: int) -> Optional[Playlist]:
         return (
@@ -31,9 +117,6 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
     
     def create_for_user(self, db: Session, *, obj_in: PlaylistCreate, user_id: int) -> Optional[Dict[str, Any]]:
         try:
-            # LA SOLUCIÓN: Llamar al procedimiento con SELECT.
-            # Los parámetros OUT se devuelven como columnas en el resultado.
-            # Solo pasamos los parámetros IN en la llamada.
             stmt = text("""
                 SELECT * FROM vibesia_schema.sp_create_playlist(
                     p_user_id => :p_user_id,
@@ -43,7 +126,6 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
                 )
             """)
 
-            # Ejecutar y obtener la única fila de resultado.
             result = db.execute(
                 stmt,
                 {
@@ -53,8 +135,7 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
                     "p_status": obj_in.status,
                 }
             ).first()
-            
-            # El resultado es una fila con las columnas: p_playlist_id, p_success, p_message
+        
             if not result or not result.p_success:
                 db.rollback()
                 error_message = result.p_message if result else "Failed to create playlist."
@@ -63,7 +144,6 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
                     detail=error_message
                 )
 
-            # Obtener el ID de la nueva playlist desde el resultado de la consulta
             new_playlist_id = result.p_playlist_id
             db.commit()
             
@@ -272,5 +352,6 @@ class CRUDPlaylist(CRUDBase[Playlist, PlaylistCreate, PlaylistUpdate]):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=detail
         )
+
 
 playlist = CRUDPlaylist(Playlist)

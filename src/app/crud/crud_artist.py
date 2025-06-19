@@ -12,5 +12,4 @@ class CRUDArtist(CRUDBase[ArtistModel, ArtistCreate, ArtistUpdate]):
         """
         return db.query(self.model).filter(self.model.name == name).first()
 
-# Instantiate the CRUD object for artists
 artist = CRUDArtist(ArtistModel)

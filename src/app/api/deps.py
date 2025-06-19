@@ -9,6 +9,7 @@ from app.core.database import SessionLocal
 from app.core.config import settings
 from app.crud.crud_user import user as user_crud
 from app.models.User import User as UserModel
+from app.utils.admin_utils import is_admin_user
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False)
 
@@ -101,4 +102,17 @@ def get_current_active_user(
         raise HTTPException(status_code=status.HTTP_400, detail="Inactive user")
     
     print("[DEBUG] 9.2. SUCCESS: User is active.")
+    return current_user
+
+def get_current_admin_user(
+    current_user: UserModel = Depends(get_current_active_user)
+) -> UserModel:
+    """
+    Dependency that gets the current active user and verifies they are an administrator.
+    """
+    if not is_admin_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges are required for this operation."
+        )
     return current_user

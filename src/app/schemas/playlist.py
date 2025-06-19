@@ -58,8 +58,6 @@ class PlaylistUpdate(BaseModel):
 class PlaylistInDB(PlaylistBase):
     playlist_id: int
     user_id: int
-    created_at: datetime
-    updated_at: datetime
     
     class Config:
         from_attributes = True
@@ -74,10 +72,8 @@ class PlaylistSummary(BaseModel):
     name: str
     description: Optional[str] = None
     status: str
-    song_count: int
-    total_duration: int
-    created_at: datetime
-    updated_at: datetime
+    song_count: Optional[int] = None
+    total_duration: Optional[float] = None
     
     class Config:
         from_attributes = True

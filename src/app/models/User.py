@@ -1,7 +1,7 @@
 # ====== User.py (Corrected Version) ======
 from app.core.database import Base
 from sqlalchemy import Column, Integer, String, Text, Date, DateTime, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 
 class User(Base):
@@ -19,8 +19,13 @@ class User(Base):
     updated_at = Column(DateTime, default=func.current_timestamp(), onupdate=func.current_timestamp())
     password_changed_at = Column(DateTime(timezone=True), nullable=True)
 
-    # --- CORRECTED RELATIONSHIPS ---
-    # Added passive_deletes=True to tell the ORM to let the database handle the cascades.
+    @validates('email')
+    def validate_email_spaces(self, key, address):
+        """Asegura que el email no contenga espacios antes de asignarlo al modelo."""
+        if ' ' in address:
+            raise ValueError("El correo electrónico no debe contener espacios")
+        return address.lower()
+    
     created_playlists = relationship(
         "Playlist",
         back_populates="creator",

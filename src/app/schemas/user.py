@@ -1,10 +1,17 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, validator
 from datetime import datetime, date
 from typing import Optional 
 
 class UserBase(BaseModel):
     username: str
     email: str
+
+    @validator("email")
+    def email_must_not_contain_spaces(cls, v):
+        """validate that email does not contain spaces"""
+        if ' ' in v:
+            raise ValueError("email must not contain spaces")
+        return v
 
 class UserCreate(UserBase):
     password: str
